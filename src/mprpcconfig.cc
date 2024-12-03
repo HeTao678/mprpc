@@ -19,7 +19,7 @@ void MprpcConfig::LoadConfigFile(const char *config_file)
         char buf[512] = {0};
         fgets(buf, 512, pf); // 读取一行
 
-        // 去掉字符串前面多余的空格
+        // 第一次去掉字符串前面多余的空格
         std::string read_buf(buf);
         Trim(read_buf);
 
@@ -39,11 +39,14 @@ void MprpcConfig::LoadConfigFile(const char *config_file)
 
         std::string key;
         std::string value;
+        // = 号前后可能还有空格，还要继续去除
+        // 第二次
         key = read_buf.substr(0, idx); // 分割
         Trim(key);                     // 去掉字符串前后的空格
         // rpcserverip=127.0.0.1\n
+        // 第三次
         int endidx = read_buf.find('\n', idx);
-        value = read_buf.substr(idx + 1, endidx - idx - 1);
+        value = read_buf.substr(idx + 1, endidx - idx - 1); // 这里-1是把末尾的换行排除在外
         Trim(value);
         m_configMap.insert({key, value});
     }
