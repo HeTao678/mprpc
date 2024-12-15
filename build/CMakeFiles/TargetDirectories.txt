@@ -10,3 +10,4 @@
 /home/hetao/git_files/mprpc/build/example/callee/CMakeFiles/provider.dir
 /home/hetao/git_files/mprpc/build/example/caller/CMakeFiles/rebuild_cache.dir
 /home/hetao/git_files/mprpc/build/example/caller/CMakeFiles/edit_cache.dir
+/home/hetao/git_files/mprpc/build/example/caller/CMakeFiles/consumer.dir
