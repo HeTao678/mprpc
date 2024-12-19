@@ -61,23 +61,47 @@ public:
         // Closure是一个抽象类，重写Run,让它去做一些事情
         done->Run();
     }
+    void Register(::google::protobuf::RpcController *controller,
+                  const ::fixbug::RegisterRequest *request,
+                  ::fixbug::RegisterResponse *response,
+                  ::google::protobuf::Closure *done)
+    {
+        // 框架给业务上报了请求参数RegisterRequest，应用程序获取相应数据做本地业务（登录的本地业务）
+        uint32_t id = request->id();
+        std::string name = request->name();
+        std::string pwd = request->pwd();
+        /*这个就是使用protobuf的好处，protobuf直接把字节流反序列化成我们可以识别的RegisterRequest对象，通过
+        他生成的方法获取姓名和密码。
+        */
+
+        // 做本地业务
+        bool Register_result = Register(id, name, pwd); // 等于当前的本地方法
+
+        // 框架只是创建一个RegisterResponse，我们只需要把响应写入，包括错误码、错误消息、返回值
+        fixbug::ResultCode *code = response->mutable_result();
+        code->set_errcode(0);
+        code->set_errmsg(""); // 没有错误
+        response->set_sucess(Register_result);
+
+        // 执行回调操作，执行响应对象数据的序列化和网络发送（都是由框架来完成的）
+        // Closure是一个抽象类，重写Run,让它去做一些事情
+        done->Run();
+    }
 };
 
-
-int main(int argc, char **argv)//需要配置文件
+int main(int argc, char **argv) // 需要配置文件
 {
-    //调用框架的初始化操作
-    MprpcApplication::Init(argc, argv);//整个框架的初始化操作，日志，配置等等。
+    // 调用框架的初始化操作
+    MprpcApplication::Init(argc, argv); // 整个框架的初始化操作，日志，配置等等。
 
-    //provider是一个rpc网络的服务对象。把UserService对象发布到rpc节点上。
+    // provider是一个rpc网络的服务对象。把UserService对象发布到rpc节点上。
     RpcProvider provider;
-    provider.NotifyService(new UserService());//发布服务
-    //可以调用多次，生成多个远程RPC服务
+    provider.NotifyService(new UserService()); // 发布服务
+    // 可以调用多次，生成多个远程RPC服务
 
-    //启动一个rpc服务发布节点
+    // 启动一个rpc服务发布节点
     provider.Run();
-    //Run以后，进程进入阻塞状态，等待远程的rpc调用请求
+    // Run以后，进程进入阻塞状态，等待远程的rpc调用请求
 
     return 0;
 }
-
