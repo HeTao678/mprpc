@@ -50,6 +50,5 @@ int main(int argc, char **argv)
     {
         std::cout << "rpc Register response error : " << response2.result().errmsg() << std::endl;
     }
-
     return 0;
 }

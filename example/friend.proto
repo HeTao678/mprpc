@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package fixbug;
+
+option cc_generic_services = true;//开启
+
+message ResultCode//打包失败类
+{
+    int32 errcode = 1; //错误代码
+    bytes errmsg = 2;//错误消息
+}
+
+message GetFriendsListRequest//登录请求
+{
+    uint32 userid=1;//哪位用户的好友列表
+}
+
+message GetFriendsListResponse//登录请求
+{
+    ResultCode result = 1;//失败
+    repeated bytes friends = 2;//好友名-数组
+}
+
+service FriendServiceRpc//RPC服务方法
+{
+    rpc GetFrindsList(GetFriendsListRequest) returns(GetFriendsListResponse);
+    
+}
