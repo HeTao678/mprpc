@@ -17,16 +17,17 @@ int main(int argc, char **argv)
     // rpc方法的响应
     fixbug::LoginResponse response;
     // 发起rpc方法的调用 ， 这是同步的rpc调用过程  MprpcChannel::callmethod，数据序列化然后发送，等待远程的rpc给我响应这个执行的方法结果
-    stub.Login(nullptr, &request, &response, nullptr); // RpcChannel->RpcChannel::callMethod 集中来做所有rpc方法调用的参数序列化和网络发送
+    MprpcController controller;
+    stub.Login(&controller, &request, &response, nullptr); // RpcChannel->RpcChannel::callMethod 集中来做所有rpc方法调用的参数序列化和网络发送
 
     // 程序跑到这，说明一次rpc调用完成，读调用的结果
-    if (0 == response.result().errcode())
+    if (controller.Failed()) // RPC调用过程中出现错误了
     {
-        std::cout << "rpc login response success:" << response.sucess() << std::endl;
+        std::cout << controller.ErrorText() << std::endl;
     }
     else
     {
-        std::cout << "rpc login response error : " << response.result().errmsg() << std::endl;
+        std::cout << "rpc login response success " << response.sucess() << std::endl;
     }
 
     // 演示调用远程发布的rpc方法Register
