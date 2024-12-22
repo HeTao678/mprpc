@@ -2,7 +2,7 @@
 #include <iostream>
 #include <unistd.h> //getopt的头文件
 #include <string>
-
+#include "logger.h"
 
 MprpcConfig MprpcApplication::m_config;
 
