@@ -1,6 +1,7 @@
 #include "mprpcprovider.h"
 #include "mprpcapplication.h"
 #include "rpcheader.pb.h"
+#include "zookeeperutil.h"
 
 /*
 service_name =>对于 service描述
@@ -57,10 +58,32 @@ void RpcProvider::Run()
     // 设置muduo库的线程数量
     server.setThreadNum(4); // 1个是I/O线程，3个是工作线程
 
-    // rpc服务端准备启动，打印信息
+    // 把当前rpc节点上要发布的服务全部注册到zk上面，让rpc client可以从zk上发现服务
+    // session timeout   30s  zkclient 网络I/O线程  1/3 * timeout 时间发送ping消息
+    ZkClient zkCli;
+    zkCli.Start(); // 连接zkserver
+    // service_name为永久性节点   method_name为临时性节点
+    for (auto &sp : m_serviceMap)
+    {
+        // /service_name   /UserServiceRpc
+        std::string service_path = "/" + sp.first;
+        zkCli.Create(service_path.c_str(), nullptr, 0);
+        for (auto &mp : sp.second.m_methodMap)
+        {
+            // /service_name/method_name   /UserServiceRpc/Login 存储当前这个rpc服务节点主机的ip和port
+            std::string method_path = service_path + "/" + mp.first;
+            char method_path_data[128] = {0};
+            sprintf(method_path_data, "%s:%d", ip.c_str(), port);
+            // ZOO_EPHEMERAL表示znode是一个临时性节点，和zkserver断了，就是表示不提供这个RPC服务了，所以ZK自动删掉就好啦。
+            zkCli.Create(method_path.c_str(), method_path_data, strlen(method_path_data), ZOO_EPHEMERAL);
+        }
+    }
+    // zookeeper结束
+
+        // rpc服务端准备启动，打印信息
     std::cout << "RpcProvider start service at ip:" << ip << " port:" << port << std::endl;
     LOG_INFO("RpcProvider start service at ip:%s", ip.c_str());
-    LOG_INFO("port:%s", port);
+    LOG_INFO("port:%d", port);
     // 启动网络服务
     server.start();
     m_eventLoop.loop(); // 相当于启动了epoll_wait，阻塞，等待远程连接
@@ -96,6 +119,7 @@ std::string   insert和copy方法
 */
 
 // 已建立连接用户的读写事件回调,如果远程有一个rpc服务的调用请求，那么OnMessage方法就会响应
+/*
 void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
                             muduo::net::Buffer *buffer,
                             muduo::Timestamp)
@@ -184,6 +208,105 @@ void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
     // 在框架上根据远端rpc请求，调用当前rpc节点上发布的方法
     service->CallMethod(method, nullptr, request, response, done); // 做完本地业务，根据结果写好reponse给框架，框架再给调用方
     // 相当于new UserService().Login(controller, request, response, done)
+}
+
+*/
+// 下面是gpt修改过的OnMessage，来解决段错误
+void RpcProvider::OnMessage(const muduo::net::TcpConnectionPtr &conn,
+                            muduo::net::Buffer *buffer,
+                            muduo::Timestamp)
+{
+    std::string recv_buf = buffer->retrieveAllAsString();
+
+    // 检查recv_buf的大小
+    if (recv_buf.size() < 4)
+    {
+        std::cerr << "recv_buf size < 4, invalid data!" << std::endl;
+        return;
+    }
+
+    uint32_t header_size = 0;
+    recv_buf.copy((char *)&header_size, 4, 0);
+    header_size = ntohl(header_size); // 如果需要网络字节序转换
+
+    if (recv_buf.size() < 4 + header_size)
+    {
+        std::cerr << "recv_buf size too small for header, invalid data!" << std::endl;
+        return;
+    }
+
+    std::string rpc_header_str = recv_buf.substr(4, header_size);
+
+    mprpc::RpcHeader rpcHeader;
+    std::string service_name, method_name;
+    uint32_t args_size = 0;
+
+    if (!rpcHeader.ParseFromString(rpc_header_str))
+    {
+        std::cerr << "rpc_header_str parse error, content: " << rpc_header_str << std::endl;
+        return;
+    }
+
+    service_name = rpcHeader.service_name();
+    method_name = rpcHeader.method_name();
+    args_size = rpcHeader.args_size();
+
+    if (recv_buf.size() < 4 + header_size + args_size)
+    {
+        std::cerr << "recv_buf size too small for args, invalid data!" << std::endl;
+        return;
+    }
+
+    std::string args_str = recv_buf.substr(4 + header_size, args_size);
+
+    auto it = m_serviceMap.find(service_name);
+    if (it == m_serviceMap.end())
+    {
+        std::cerr << service_name << " is not exist!" << std::endl;
+        return;
+    }
+
+    auto mit = it->second.m_methodMap.find(method_name);
+    if (mit == it->second.m_methodMap.end())
+    {
+        std::cerr << service_name << ":" << method_name << " is not exist!" << std::endl;
+        return;
+    }
+
+    google::protobuf::Service *service = it->second.m_service;
+    const google::protobuf::MethodDescriptor *method = mit->second;
+
+    google::protobuf::Message *request = service->GetRequestPrototype(method).New();
+    if (!request)
+    {
+        std::cerr << "Failed to create request object for method: " << method_name << std::endl;
+        return;
+    }
+
+    if (!request->ParseFromString(args_str))
+    {
+        std::cerr << "Request parse error, content: " << args_str << std::endl;
+        delete request;
+        return;
+    }
+
+    google::protobuf::Message *response = service->GetResponsePrototype(method).New();
+    if (!response)
+    {
+        std::cerr << "Failed to create response object for method: " << method_name << std::endl;
+        delete request;
+        return;
+    }
+
+    google::protobuf::Closure *done = google::protobuf::NewCallback<RpcProvider,
+                                                                    const muduo::net::TcpConnectionPtr &,
+                                                                    google::protobuf::Message *>(this,
+                                                                                                 &RpcProvider::SendRpcResponse,
+                                                                                                 conn, response);
+
+    service->CallMethod(method, nullptr, request, response, done);
+
+    delete request;
 }
 
 // Closure的回调操作，用于序列化rpc的响应和网络发送
